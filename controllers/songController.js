@@ -1,77 +1,110 @@
 const {Song, Singer, Genre} = require("../models/models");
 const ApiError = require("../error/ApiError");
+const Sequelize = require("sequelize");
 
 class SongController {
   async getAll(req, res, next) {
-    const {filter, sort, page} = req.query;
+    const {singerId, genreId, year, sort, page, count} = req.query;
     const paramQuerySQL = {};
-    let limit;
-    let offset;
+    let limit = 10;
+    let offset = 0;
 
-    // filtering - [category]
-    if (filter !== "" && typeof filter !== "undefined") {
-      const query = filter.category.split(",").map((item) => ({
-        [Op.eq]: item,
-      }));
+    // filtering - [singerId]
+    paramQuerySQL.where = {};
+    if (singerId) {
+      paramQuerySQL.where.singerId = singerId;
+    }
 
-      paramQuerySQL.where = {
-        id_category: {[Op.or]: query},
-      };
+    if (genreId) {
+      paramQuerySQL.where.genreId = genreId;
+    }
+
+    if (year) {
+      paramQuerySQL.where.year = year;
     }
 
     // sorting
     if (sort !== "" && typeof sort !== "undefined") {
       let query;
-      if (sort.charAt(0) !== "-") {
-        query = [[sort, "ASC"]];
+      let words = sort.split(" ");
+      if (words[1] !== "DESC") {
+        if (words[0] == "singerName") {
+          query = [["singer", "name", "ASC"]];
+        }
+        if (words[0] == "genreName") {
+          query = [["genre", "name", "ASC"]];
+        }
+        if (words[0] == "name") {
+          query = [["name", "ASC"]];
+        }
+        if (words[0] == "year") {
+          query = [["year", "ASC"]];
+        }
+        if (words[0] == "id") {
+          query = [["id", "ASC"]];
+        }
       } else {
-        query = [[sort.replace("-", ""), "DESC"]];
+        if (words[0] == "singerName") {
+          query = [["singer", "name", "DESC"]];
+        }
+
+        if (words[0] == "genreName") {
+          query = [["genre", "name", "DESC"]];
+        }
+        if (words[0] == "name") {
+          query = [["name", "DESC"]];
+        }
+        if (words[0] == "year") {
+          query = [["year", "DESC"]];
+        }
+        if (words[0] == "id") {
+          query = [["id", "DESC"]];
+        }
       }
 
       paramQuerySQL.order = query;
     }
 
     // pagination
-    if (page !== "" && typeof page !== "undefined") {
-      if (page.size !== "" && typeof page.size !== "undefined") {
-        limit = page.size;
-        paramQuerySQL.limit = limit;
-      }
-
-      if (page.number !== "" && typeof page.number !== "undefined") {
-        offset = page.number * limit - limit;
-        paramQuerySQL.offset = offset;
-      }
+    if (page && count) {
+      limit = count;
+      offset = (page - 1) * limit;
+      paramQuerySQL.limit = limit;
+      paramQuerySQL.offset = offset;
     } else {
-      limit = 25; // limit 25 item
-      offset = 0;
       paramQuerySQL.limit = limit;
       paramQuerySQL.offset = offset;
     }
 
     try {
-      let songs = await Song.findAll(
-        {
-          include: [
-            {
-              model: Singer,
-              as: "singer",
-              attributes: ["id", "name"],
-            },
-            {
-              model: Genre,
-              as: "genre",
-              attributes: ["id", "name"],
-            },
-          ],
-          attributes: ["id", "name", "year"],
-        },
-        paramQuerySQL
-      );
+      let songs = await Song.findAll({
+        include: [
+          {
+            model: Singer,
+            as: "singer",
+            attributes: ["id", "name"],
+          },
+          {
+            model: Genre,
+            as: "genre",
+            attributes: ["id", "name"],
+          },
+        ],
+        attributes: ["id", "name", "year"],
+        ...paramQuerySQL,
+      });
 
-      return res.json(songs);
+      let metadata = {};
+      metadata.sort = sort;
+      metadata.pagination = {
+        totalPages: 1000,
+        currentPage: 1,
+        count: limit,
+      };
+
+      return res.json({songs, metadata});
     } catch (error) {
-      next(ApiError.badRequest(e.message));
+      next(ApiError.badRequest(error.message));
     }
   }
 
@@ -79,6 +112,14 @@ class SongController {
     const {name, year, singerId, genreId} = req.body;
     const song = await Song.create({name, year, singerId, genreId});
     return res.json(song);
+  }
+
+  async getYears(req, res) {
+    const years = await Song.findAll({
+      order: [["year", "ASC"]],
+      attributes: [Sequelize.fn("DISTINCT", Sequelize.col("year")), "year"],
+    });
+    return res.json(years);
   }
 }
 
